@@ -1,0 +1,14 @@
+pandas
+numpy
+google-cloud-bigquery
+google-cloud-bigquery-storage
+transformers
+torch
+torchvision
+asyncio
+typing
+pathlib
+db_dtypes
+db-dtypes
+openai
+colorama
