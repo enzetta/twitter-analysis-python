@@ -94,3 +94,6 @@ analyze_tweet(
 analyze_tweet(
     "@Sabine60451919 @ABaerbock Glaubst du wir lassen uns erpressen? Ich bin jetzt für 2G bundesweit, dann können Querdenker schön zuhause querdenken und wenn sie in der Öffentlichkeit nerven gibt es aufs Maul #QuerdenkerSindTerroristen"
 )
+
+# for precision, recall, and accuracy 
+# https://huggingface.co/textdetox/xlmr-large-toxicity-classifier
