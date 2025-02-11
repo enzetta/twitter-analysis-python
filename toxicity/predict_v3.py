@@ -340,7 +340,7 @@ class OptimizedPipeline:
 async def main() -> None:
     """Main entry point."""
     try:
-        processor = OptimizedPipelineV2()
+        processor = OptimizedPipeline()
         processor.setup_table()
         await processor.process_tweets(fetch_size=FETCH_SIZE,
                                        total_limit=LIMIT)
