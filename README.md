@@ -28,7 +28,7 @@ pip install -r requirements.txt
 ### **3️. Authenticate with Google Cloud**
 Ensure you have a **Google Cloud service account** and set up authentication:
 ```sh
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account.json
+export GOOGLE_APPLICATION_CREDENTIALS=.secrets/service-account.json
 ```
 
 ---

@@ -43,8 +43,7 @@ class OptimizedPipeline:
         self.service_account_path = service_account_path
 
         self.batch_semaphore = asyncio.Semaphore(max_concurrent_batches)
-        self.bq_client = BigQueryClient(self.project_id,
-                                        self.service_account_path)
+        self.bq_client = BigQueryClient(self.project_id, self.service_account_path)
 
         self.sentiment_pipeline = None
         self.toxicity_pipeline = None
@@ -77,8 +76,7 @@ class OptimizedPipeline:
         ]
 
         if CREATE_TABLE is True:
-            self.bq_client.create_table(self.dataset_id, self.target_table,
-                                        schema)
+            self.bq_client.create_table(self.dataset_id, self.target_table, schema)
 
         self.init_models()
 
@@ -110,15 +108,16 @@ class OptimizedPipeline:
         inference_start = time.time()
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            sentiment_future = loop.run_in_executor(executor,
-                                                    self.sentiment_pipeline,
-                                                    texts)
-            toxicity_future = loop.run_in_executor(executor,
-                                                   self.toxicity_pipeline,
-                                                   texts)
+            sentiment_future = loop.run_in_executor(
+                executor, self.sentiment_pipeline, texts
+            )
+            toxicity_future = loop.run_in_executor(
+                executor, self.toxicity_pipeline, texts
+            )
 
             sentiment_outputs, toxicity_outputs = await asyncio.gather(
-                sentiment_future, toxicity_future)
+                sentiment_future, toxicity_future
+            )
 
         # Update cumulative inference time
         self.total_inference_time += time.time() - inference_start
@@ -133,35 +132,34 @@ class OptimizedPipeline:
             try:
                 texts = [item["text"] for item in batch]
                 sentiment_outputs, toxicity_outputs = await self.parallel_inference(
-                    texts)
+                    texts
+                )
 
                 full_results = []
-                for item, sent, tox in zip(batch, sentiment_outputs,
-                                           toxicity_outputs):
+                for item, sent, tox in zip(batch, sentiment_outputs, toxicity_outputs):
                     result = {
-                        "tweet_id":
-                        item["tweet_id"],
-                        "user_id":
-                        item["user_id"],
-                        "recorded_at":
-                        item["recorded_at"],
-                        "text":
-                        item["text"],
-                        "sentiment":
-                        sent["label"],
-                        "positive_probability":
-                        float(sent["score"] if sent["label"] ==
-                              "positive" else 1 - sent["score"]),
-                        "neutral_probability":
-                        float(sent["score"] if sent["label"] ==
-                              "neutral" else 1 - sent["score"]),
-                        "negative_probability":
-                        float(sent["score"] if sent["label"] ==
-                              "negative" else 1 - sent["score"]),
-                        "toxicity_label":
-                        tox["label"],
-                        "toxicity_score":
-                        float(tox["score"]),
+                        "tweet_id": item["tweet_id"],
+                        "user_id": item["user_id"],
+                        "recorded_at": item["recorded_at"],
+                        "text": item["text"],
+                        "sentiment": sent["label"],
+                        "positive_probability": float(
+                            sent["score"]
+                            if sent["label"] == "positive"
+                            else 1 - sent["score"]
+                        ),
+                        "neutral_probability": float(
+                            sent["score"]
+                            if sent["label"] == "neutral"
+                            else 1 - sent["score"]
+                        ),
+                        "negative_probability": float(
+                            sent["score"]
+                            if sent["label"] == "negative"
+                            else 1 - sent["score"]
+                        ),
+                        "toxicity_label": tox["label"],
+                        "toxicity_score": float(tox["score"]),
                     }
                     full_results.append(result)
 
@@ -174,8 +172,10 @@ class OptimizedPipeline:
                 self.total_batch_time += time.time() - batch_start
                 self.total_batches += 1
 
-                logger.info(f"Batch processed: {len(full_results)} tweets. "
-                            f"Total processed: {self.total_processed}")
+                logger.info(
+                    f"Batch processed: {len(full_results)} tweets. "
+                    f"Total processed: {self.total_processed}"
+                )
 
             except Exception as e:
                 logger.error(f"Error processing batch: {e}", exc_info=True)
@@ -187,8 +187,7 @@ class OptimizedPipeline:
                 rows = await self.bq_queue.get()
 
                 if rows == "DONE":
-                    logger.info(
-                        "Received DONE signal, finishing streaming task")
+                    logger.info("Received DONE signal, finishing streaming task")
                     self.bq_queue.task_done()
                     break
 
@@ -197,21 +196,19 @@ class OptimizedPipeline:
                         if isinstance(row.get("recorded_at"), datetime):
                             row["recorded_at"] = row["recorded_at"].isoformat()
 
-                    self.bq_client.insert_rows_json(self.dataset_id,
-                                                    self.target_table, rows)
-                    logger.info(
-                        f"Successfully streamed {len(rows)} rows to BigQuery")
+                    self.bq_client.insert_rows_json(
+                        self.dataset_id, self.target_table, rows
+                    )
+                    logger.info(f"Successfully streamed {len(rows)} rows to BigQuery")
 
                 except Exception as e:
-                    logger.error(f"Error streaming to BigQuery: {e}",
-                                 exc_info=True)
+                    logger.error(f"Error streaming to BigQuery: {e}", exc_info=True)
 
                 finally:
                     self.bq_queue.task_done()
 
             except Exception as e:
-                logger.error(f"Fatal error in streaming task: {e}",
-                             exc_info=True)
+                logger.error(f"Fatal error in streaming task: {e}", exc_info=True)
                 self.bq_queue.task_done()
                 break
 
@@ -233,8 +230,7 @@ class OptimizedPipeline:
         try:
             while True:
                 if total_limit and total_processed >= total_limit:
-                    logger.info(
-                        f"Reached processing limit of {total_limit} tweets")
+                    logger.info(f"Reached processing limit of {total_limit} tweets")
                     break
 
                 current_fetch = fetch_size
@@ -247,7 +243,7 @@ class OptimizedPipeline:
                     FROM `{self.project_id}.{self.dataset_id}.{self.source_table}`
                     WHERE text IS NOT NULL AND LENGTH(TRIM(text)) > 0
                     AND tweet_id NOT IN (SELECT tweet_id FROM `{self.project_id}.{self.dataset_id}.{self.target_table}`)
-                    ORDER BY recorded_at ASC
+                    ORDER BY recorded_at DESC
                     LIMIT {current_fetch}
                 """
 
@@ -268,16 +264,14 @@ class OptimizedPipeline:
 
                     for _, row in rows.iterrows():
                         if row.text and row.text.strip():
-                            current_batch.append({
-                                "text":
-                                row.text,
-                                "tweet_id":
-                                row.tweet_id,
-                                "user_id":
-                                row.user_id,
-                                "recorded_at":
-                                row.recorded_at,
-                            })
+                            current_batch.append(
+                                {
+                                    "text": row.text,
+                                    "tweet_id": row.tweet_id,
+                                    "user_id": row.user_id,
+                                    "recorded_at": row.recorded_at,
+                                }
+                            )
                             if len(current_batch) >= self.batch_size:
                                 batches.append(current_batch)
                                 current_batch = []
@@ -285,21 +279,20 @@ class OptimizedPipeline:
                     if current_batch:
                         batches.append(current_batch)
 
-                    batch_tasks = [
-                        self.process_batch(batch) for batch in batches
-                    ]
+                    batch_tasks = [self.process_batch(batch) for batch in batches]
                     await asyncio.gather(*batch_tasks)
                     await self.bq_queue.join()
 
                     total_processed += len(rows)
                     processed_tweets += len(rows)
 
-                    logger.info(f"Processed {total_processed} tweets" + (
-                        f" out of {total_limit}" if total_limit else ""))
+                    logger.info(
+                        f"Processed {total_processed} tweets"
+                        + (f" out of {total_limit}" if total_limit else "")
+                    )
 
                 except Exception as e:
-                    logger.error(f"Error in process_tweets: {e}",
-                                 exc_info=True)
+                    logger.error(f"Error in process_tweets: {e}", exc_info=True)
                     raise
 
             await self.bq_queue.join()
@@ -319,13 +312,21 @@ class OptimizedPipeline:
                     pass
 
             elapsed = time.perf_counter() - self.processing_start_time
-            avg_inference_time = (self.total_inference_time /
-                                  self.total_batches
-                                  if self.total_batches > 0 else 0)
-            avg_batch_time = (self.total_batch_time / self.total_batches
-                              if self.total_batches > 0 else 0)
-            avg_queue_time = (self.total_queue_time / self.total_batches
-                              if self.total_batches > 0 else 0)
+            avg_inference_time = (
+                self.total_inference_time / self.total_batches
+                if self.total_batches > 0
+                else 0
+            )
+            avg_batch_time = (
+                self.total_batch_time / self.total_batches
+                if self.total_batches > 0
+                else 0
+            )
+            avg_queue_time = (
+                self.total_queue_time / self.total_batches
+                if self.total_batches > 0
+                else 0
+            )
 
             logger.info(
                 f"\nFinal Pipeline Statistics:"
@@ -334,16 +335,16 @@ class OptimizedPipeline:
                 f"\n- Overall throughput: {self.total_processed/elapsed:.2f} tweets/second"
                 f"\n- Average inference time per batch: {avg_inference_time:.2f}s"
                 f"\n- Average total batch time: {avg_batch_time:.2f}s"
-                f"\n- Average queue time: {avg_queue_time:.2f}s")
+                f"\n- Average queue time: {avg_queue_time:.2f}s"
+            )
 
 
 async def main() -> None:
     """Main entry point."""
     try:
-        processor = OptimizedPipelineV2()
+        processor = OptimizedPipeline()
         processor.setup_table()
-        await processor.process_tweets(fetch_size=FETCH_SIZE,
-                                       total_limit=LIMIT)
+        await processor.process_tweets(fetch_size=FETCH_SIZE, total_limit=LIMIT)
     except Exception as e:
         logger.error(f"Pipeline execution failed: {e}", exc_info=True)
         raise

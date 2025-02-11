@@ -12,3 +12,10 @@ db_dtypes
 db-dtypes
 openai
 colorama
+networkx
+community
+python-louvain
+scipy
+seaborn
+matplotlib
+scikit-learn
