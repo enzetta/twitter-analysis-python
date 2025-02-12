@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Define file path
-file_name = "network_users_interactions_only_metrics_2025-02-10_19-09-12.csv"
+file_name = "2025-02-12_17-33-38_network_users_metrics.csv"
 output_path = os.path.join("data", "output", file_name)
 
 # Specify metrics to analyze

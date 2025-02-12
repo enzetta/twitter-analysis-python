@@ -18,7 +18,7 @@ all_tables = {
 }
 
 table_name = all_tables["network_users"]
-dataset = "twitter_analysis_analyses"
+dataset = "twitter_analysis_curated"
 project_id = "grounded-nebula-408412"
 
 LIMIT = ""  # e.g. "LIMIT 10000"
@@ -398,13 +398,13 @@ def process_all_data():
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         network_df.to_csv(
-            os.path.join(OUTPUT_DIR, f"network_metrics_{timestamp}.csv"), index=False
+            os.path.join(OUTPUT_DIR, f"{timestamp}_network_metrics.csv"), index=False
         )
         node_df.to_csv(
-            os.path.join(OUTPUT_DIR, f"node_metrics_{timestamp}.csv"), index=False
+            os.path.join(OUTPUT_DIR, f"{timestamp}_node_metrics.csv"), index=False
         )
         party_df.to_csv(
-            os.path.join(OUTPUT_DIR, f"party_metrics_{timestamp}.csv"), index=False
+            os.path.join(OUTPUT_DIR, f"{timestamp}_party_metrics.csv"), index=False
         )
 
         logger.info(f"Saved network metrics to: network_metrics_{timestamp}.csv")

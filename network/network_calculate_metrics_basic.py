@@ -17,8 +17,8 @@ all_tables = {
     "network_hashtags-users": "network_hashtags-users",
 }
 
-table_name = all_tables["network_users_interactions_only"]
-dataset = "twitter_analysis_analyses"
+table_name = all_tables["network_users"]
+dataset = "twitter_analysis_curated"
 project_id = "grounded-nebula-408412"
 
 # Output configuration
@@ -114,14 +114,10 @@ def calculate_network_metrics(df_group, month_start):
             "density": nx.density(Graph),
             "connected_components": nx.number_strongly_connected_components(Graph),
             "transitivity": nx.transitivity(Graph),
-            "average_path_length": np.nan,
-            "diameter": np.nan,
             "modularity": np.nan,
             "modularity_classes": 0,
             "assortativity": np.nan,
             "network_avg_toxicity": network_avg_toxicity,
-            "max_node_toxicity": max(node_toxicity.values()) if node_toxicity else 0,
-            "min_node_toxicity": min(node_toxicity.values()) if node_toxicity else 0,
             "median_node_toxicity": (
                 np.median(list(node_toxicity.values())) if node_toxicity else 0
             ),
@@ -135,25 +131,6 @@ def calculate_network_metrics(df_group, month_start):
                 logger.warning(
                     f"Could not calculate assortativity for timestamp {month_start}. Error: {str(e)}"
                 )
-
-            # Path length calculations for weakly connected graphs
-            if nx.is_weakly_connected(Graph):
-                try:
-                    lengths = dict(
-                        nx.all_pairs_dijkstra_path_length(Graph, weight="weight")
-                    )
-                    all_lengths = [
-                        length
-                        for target_lengths in lengths.values()
-                        for length in target_lengths.values()
-                    ]
-                    if all_lengths:
-                        metrics["average_path_length"] = np.mean(all_lengths)
-                        metrics["diameter"] = max(all_lengths)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not calculate path metrics for timestamp {month_start}. Error: {str(e)}"
-                    )
 
             # Community detection
             try:
@@ -184,17 +161,6 @@ def calculate_network_metrics(df_group, month_start):
                 community_avg_toxicity = {
                     comm: np.mean(tox) for comm, tox in community_toxicity.items()
                 }
-
-                metrics["max_community_toxicity"] = (
-                    max(community_avg_toxicity.values())
-                    if community_avg_toxicity
-                    else 0
-                )
-                metrics["min_community_toxicity"] = (
-                    min(community_avg_toxicity.values())
-                    if community_avg_toxicity
-                    else 0
-                )
 
                 logger.info(
                     f"Successfully completed community detection for timestamp {month_start}"
@@ -242,9 +208,9 @@ def process_network_data():
         metrics_df = pd.DataFrame(metrics_list)
 
         # Save results locally with timestamp
-        current_date = datetime.now().strftime("%Y-%m-%d")
+        # current_date = datetime.now().strftime("%Y-%m-%d")
         current_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_filename = f"{table_name}_metrics_{current_timestamp}.csv"
+        output_filename = f"{current_timestamp}_{table_name}_metrics.csv"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
 
         metrics_df.to_csv(output_path, index=False)
