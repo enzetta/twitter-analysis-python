@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Define file path
-file_name = "2025-02-12_17-33-38_network_users_metrics.csv"
+file_name = "2025-02-13_10-05-08_network_users_metrics.csv"
 output_path = os.path.join("data", "output", file_name)
 
 # Specify metrics to analyze
@@ -16,6 +16,11 @@ selected_metrics = [
     "network_avg_toxicity",
     "transitivity",
     "assortativity",
+    "max_core_number",
+    "rich_club_coefficient",
+    "average_clustering",
+    "connected_components",
+    "density",
 ]
 
 
