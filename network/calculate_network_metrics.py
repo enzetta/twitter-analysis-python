@@ -11,13 +11,12 @@ from google.cloud.exceptions import GoogleCloudError
 
 # Configuration
 all_tables = {
-    "network_users": "network_users",
-    "network_hashtags": "network_hashtags",
-    "network_users_interactions_only": "network_users_interactions_only",
-    "network_hashtags-users": "network_hashtags-users",
+    "all": "network_users",
+    "migration": "network_migration",
+    "climate": "network_climate",
 }
 
-table_name = all_tables["network_users"]
+table_name = all_tables["climate"]
 dataset = "twitter_analysis_curated"
 project_id = "grounded-nebula-408412"
 

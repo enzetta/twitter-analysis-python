@@ -8,17 +8,24 @@ from google.cloud import bigquery
 from google.cloud.exceptions import GoogleCloudError
 
 # Configuration
+network_tables = {
+    "migration": "network_migration",
+    "all": "network_users",
+    "climate": "network_climate",
+}
 project_id = "grounded-nebula-408412"
-dataset = "twitter_analysis_curated"
-source_table = "network_users"
-target_table = f"{project_id}.{dataset}.python_node_metrics_monthly"
+target_dataset = "python_src"
+source_dataset = "twitter_analysis_curated"
+
+source_table = network_tables.get("migration")
+
+target_table = f"{project_id}.{target_dataset}.python_{source_table}_node_metrics"
 
 # Write behavior configuration
 REPLACE_TABLE = True  # Set to False to append to existing table
 LIMIT = f"""
 ORDER BY weight DESC
 """
-# LIMIT 50000
 
 # Set up logging
 logging.basicConfig(
@@ -36,7 +43,7 @@ def fetch_monthly_data(month_start):
     """Fetch data for a specific month from BigQuery."""
     query = f"""
     SELECT *
-    FROM {project_id}.{dataset}.{source_table}
+    FROM {project_id}.{source_dataset}.{source_table}
     WHERE month_start = @month_start
     {LIMIT}
     """
@@ -58,19 +65,21 @@ def fetch_monthly_data(month_start):
 
 
 def get_all_months():
-    """Get list of all unique months in the dataset."""
+    """Get list of all unique months in the target_dataset."""
     query = f"""
     SELECT DISTINCT month_start
-    FROM {project_id}.{dataset}.{source_table}
+    FROM {project_id}.{source_dataset}.{source_table}
     ORDER BY month_start
     """
 
     try:
         query_job = client.query(query)
         months_df = query_job.to_dataframe(create_bqstorage_client=False)
+
         return months_df["month_start"].tolist()
     except GoogleCloudError as e:
         logger.error(f"Error fetching months: {str(e)}")
+
         raise
 
 
@@ -103,9 +112,6 @@ def calculate_node_metrics(df_month, month_start):
         logger.info("Calculating betweenness")
         k = min(1000, max(50, int(len(Graph) * 0.02)))  # Sampling for large graphs
         betweenness = nx.betweenness_centrality(Graph, weight="weight", k=k)
-
-        # logger.info("Calculating closeness centrality")
-        # closeness = nx.closeness_centrality(Graph, distance="weight")
 
         logger.info("Calculating clustering coefficients and triangles")
         undirected = Graph.to_undirected()
@@ -140,7 +146,6 @@ def calculate_node_metrics(df_month, month_start):
                     "degree_in": degree_in.get(node, 0),
                     "degree_out": degree_out.get(node, 0),
                     "betweenness": betweenness.get(node, 0),
-                    # "closeness": closeness.get(node, 0),
                     "clustering": clustering.get(node, 0),
                     "triangles": triangles.get(node, 0),
                     "core_number": core_numbers.get(node, 0),
@@ -173,13 +178,12 @@ def create_or_get_table():
     """Create the BigQuery table if it doesn't exist or get the existing schema."""
     schema = [
         bigquery.SchemaField("row_id", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("month_start", "TIMESTAMP"),
+        bigquery.SchemaField("month_start", "DATE"),
         bigquery.SchemaField("node_id", "STRING"),
         bigquery.SchemaField("pagerank", "FLOAT"),
         bigquery.SchemaField("degree_in", "FLOAT"),
         bigquery.SchemaField("degree_out", "FLOAT"),
         bigquery.SchemaField("betweenness", "FLOAT"),
-        # bigquery.SchemaField("closeness", "FLOAT"),
         bigquery.SchemaField("clustering", "FLOAT"),
         bigquery.SchemaField("triangles", "INTEGER"),
         bigquery.SchemaField("core_number", "INTEGER"),
@@ -221,12 +225,12 @@ def create_or_get_table():
 
 def upload_to_bigquery(df, month_start):
     """Upload node metrics to BigQuery."""
+    # Convert month_start column to proper datetime type
+    df["month_start"] = pd.to_datetime(df["month_start"]).dt.date
+
     job_config = bigquery.LoadJobConfig(
-        write_disposition=(
-            bigquery.WriteDisposition.WRITE_TRUNCATE
-            if REPLACE_TABLE
-            else bigquery.WriteDisposition.WRITE_APPEND
-        ),
+        # Always use WRITE_APPEND after initial table creation
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND
     )
 
     try:
