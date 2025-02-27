@@ -1,3 +1,4 @@
+# Network metrics
 import pandas as pd
 import networkx as nx
 import numpy as np
@@ -18,7 +19,11 @@ all_tables = {
 
 table_name = all_tables["climate"]
 dataset = "twitter_analysis_curated"
+target_dataset = "python_src"  # Target dataset for storing results
 project_id = "grounded-nebula-408412"
+
+# Write behavior configuration
+REPLACE_TABLE = True  # Set to False to append to existing table
 
 # Output configuration
 OUTPUT_DIR = os.path.join("data", "output")
@@ -112,6 +117,7 @@ def calculate_network_metrics(df_group, month_start):
 
         metrics = {
             "month_start": month_start,
+            "table_name": table_name,
             "nodes": len(Graph),
             "edges": Graph.number_of_edges(),
             "density": nx.density(Graph),
@@ -194,6 +200,9 @@ def calculate_network_metrics(df_group, month_start):
                     comm: np.mean(tox) for comm, tox in community_toxicity.items()
                 }
 
+                # Add row ID for BigQuery
+                metrics["row_id"] = f"{month_start.strftime('%Y-%m')}_{table_name}"
+
                 logger.info(
                     f"Successfully completed community detection for timestamp {month_start}"
                 )
@@ -211,10 +220,84 @@ def calculate_network_metrics(df_group, month_start):
         return pd.Series()
 
 
+def create_or_get_bigquery_table(table_name):
+    """Create or get the BigQuery table for network metrics."""
+    target_table = f"{project_id}.{target_dataset}.python_network_{table_name}_metrics"
+
+    schema = [
+        bigquery.SchemaField("row_id", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("month_start", "DATE"),
+        bigquery.SchemaField("table_name", "STRING"),
+        bigquery.SchemaField("nodes", "INTEGER"),
+        bigquery.SchemaField("edges", "INTEGER"),
+        bigquery.SchemaField("density", "FLOAT"),
+        bigquery.SchemaField("connected_components", "INTEGER"),
+        bigquery.SchemaField("transitivity", "FLOAT"),
+        bigquery.SchemaField("modularity", "FLOAT"),
+        bigquery.SchemaField("modularity_classes", "INTEGER"),
+        bigquery.SchemaField("assortativity", "FLOAT"),
+        bigquery.SchemaField("network_avg_toxicity", "FLOAT"),
+        bigquery.SchemaField("median_node_toxicity", "FLOAT"),
+        bigquery.SchemaField("max_core_number", "INTEGER"),
+        bigquery.SchemaField("avg_core_number", "FLOAT"),
+        bigquery.SchemaField("rich_club_coefficient", "FLOAT"),
+        bigquery.SchemaField("average_clustering", "FLOAT"),
+    ]
+
+    table = bigquery.Table(target_table, schema=schema)
+
+    if REPLACE_TABLE:
+        # Delete the table if it exists and create a new one
+        try:
+            client.delete_table(table)
+            logger.info(f"Deleted existing table {target_table}")
+        except Exception:
+            pass  # Table might not exist
+
+        table.clustering_fields = ["month_start"]
+        table = client.create_table(table)
+        logger.info(f"Created new table {target_table}")
+    else:
+        try:
+            # Get existing table
+            table = client.get_table(target_table)
+            logger.info(f"Using existing table {target_table}")
+        except Exception:
+            # Create new table if it doesn't exist
+            table.clustering_fields = ["month_start"]
+            table = client.create_table(table)
+            logger.info(f"Created new table {target_table}")
+
+    return target_table
+
+
+def upload_to_bigquery(df, target_table):
+    """Upload network metrics to BigQuery."""
+    # Convert month_start column to proper datetime type
+    df["month_start"] = pd.to_datetime(df["month_start"]).dt.date
+
+    job_config = bigquery.LoadJobConfig(
+        # Use WRITE_APPEND to add to existing data
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND
+    )
+
+    try:
+        job = client.load_table_from_dataframe(df, target_table, job_config=job_config)
+        job.result()
+        logger.info(f"Uploaded {len(df)} rows to BigQuery")
+        return True
+    except Exception as e:
+        logger.error(f"BigQuery upload failed: {str(e)}")
+        return False
+
+
 def process_network_data():
     """Process network data month by month and calculate metrics."""
     try:
         logger.info("Starting network analysis")
+
+        # Set up BigQuery table
+        target_table = create_or_get_bigquery_table(table_name)
 
         # Get all unique months
         months = get_all_months()
@@ -239,13 +322,20 @@ def process_network_data():
         # Combine all metrics into a single DataFrame
         metrics_df = pd.DataFrame(metrics_list)
 
-        # Save results locally with timestamp
+        # Save results locally with timestamp (as before)
         current_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_filename = f"{current_timestamp}_{table_name}_metrics.csv"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
 
         metrics_df.to_csv(output_path, index=False)
-        logger.info(f"Results saved to: {output_path}")
+        logger.info(f"Results saved to local file: {output_path}")
+
+        # Upload to BigQuery
+        success = upload_to_bigquery(metrics_df, target_table)
+        if success:
+            logger.info(f"Successfully uploaded data to BigQuery table: {target_table}")
+        else:
+            logger.error("Failed to upload data to BigQuery")
 
         return metrics_df
 
@@ -254,11 +344,57 @@ def process_network_data():
         raise
 
 
+def process_table(table_key, table_val):
+    """Process a single table."""
+    global table_name
+    try:
+        logger.info(
+            f"==== Starting processing for table: {table_key} ({table_val}) ===="
+        )
+
+        # Set the global table_name
+        table_name = table_val
+
+        # Process network data for this table
+        metrics_df = process_network_data()
+
+        logger.info(
+            f"==== Completed processing for table: {table_key} ({table_name}) ===="
+        )
+        return True
+
+    except Exception as e:
+        logger.error(
+            f"Processing failed for table {table_val}: {str(e)}\n{traceback.format_exc()}"
+        )
+        return False
+
+
+def process_all_tables():
+    """Process all tables sequentially."""
+    try:
+        logger.info(f"Starting sequential processing of {len(all_tables)} tables")
+
+        success_count = 0
+        for table_key, table_name in all_tables.items():
+            if process_table(table_key, table_name):
+                success_count += 1
+
+        logger.info(
+            f"Processing completed. Successfully processed {success_count}/{len(all_tables)} tables"
+        )
+
+    except Exception as e:
+        logger.error(f"Overall processing failed: {str(e)}\n{traceback.format_exc()}")
+        raise
+
+
 if __name__ == "__main__":
     logger.info("Starting network metrics calculation")
 
     try:
-        metrics_df = process_network_data()
+        # Process all tables instead of just one
+        process_all_tables()
         logger.info("Processing completed successfully")
     except Exception as e:
         logger.error(f"Processing failed: {str(e)}")

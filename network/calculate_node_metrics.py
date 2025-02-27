@@ -1,3 +1,4 @@
+# Node metrics
 import pandas as pd
 import networkx as nx
 import numpy as np
@@ -13,19 +14,17 @@ network_tables = {
     "all": "network_users",
     "climate": "network_climate",
 }
+
 project_id = "grounded-nebula-408412"
 target_dataset = "python_src"
 source_dataset = "twitter_analysis_curated"
-
-source_table = network_tables.get("migration")
-
-target_table = f"{project_id}.{target_dataset}.python_{source_table}_node_metrics"
 
 # Write behavior configuration
 REPLACE_TABLE = True  # Set to False to append to existing table
 LIMIT = f"""
 ORDER BY weight DESC
 """
+# LIMIT 50
 
 # Set up logging
 logging.basicConfig(
@@ -39,7 +38,7 @@ nx.config.backend_priority = ["parallel"]  # Use parallel backend when available
 nx.config.backends.parallel.n_jobs = 2048
 
 
-def fetch_monthly_data(month_start):
+def fetch_monthly_data(month_start, source_table):
     """Fetch data for a specific month from BigQuery."""
     query = f"""
     SELECT *
@@ -60,11 +59,13 @@ def fetch_monthly_data(month_start):
         df = query_job.to_dataframe(create_bqstorage_client=False)
         return df
     except GoogleCloudError as e:
-        logger.error(f"BigQuery error for {month_start}: {str(e)}")
+        logger.error(
+            f"BigQuery error for {month_start} in table {source_table}: {str(e)}"
+        )
         raise
 
 
-def get_all_months():
+def get_all_months(source_table):
     """Get list of all unique months in the target_dataset."""
     query = f"""
     SELECT DISTINCT month_start
@@ -78,8 +79,7 @@ def get_all_months():
 
         return months_df["month_start"].tolist()
     except GoogleCloudError as e:
-        logger.error(f"Error fetching months: {str(e)}")
-
+        logger.error(f"Error fetching months from {source_table}: {str(e)}")
         raise
 
 
@@ -174,8 +174,10 @@ def calculate_node_metrics(df_month, month_start):
         return pd.DataFrame()
 
 
-def create_or_get_table():
+def create_or_get_table(table_name):
     """Create the BigQuery table if it doesn't exist or get the existing schema."""
+    target_table = f"{project_id}.{target_dataset}.python_{table_name}_node_metrics"
+
     schema = [
         bigquery.SchemaField("row_id", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("month_start", "DATE"),
@@ -220,10 +222,10 @@ def create_or_get_table():
             table = client.create_table(table)
             logger.info(f"Created new table {target_table}")
 
-    return table
+    return table, target_table
 
 
-def upload_to_bigquery(df, month_start):
+def upload_to_bigquery(df, month_start, target_table):
     """Upload node metrics to BigQuery."""
     # Convert month_start column to proper datetime type
     df["month_start"] = pd.to_datetime(df["month_start"]).dt.date
@@ -242,21 +244,25 @@ def upload_to_bigquery(df, month_start):
         raise
 
 
-def process_all_months():
-    """Process all months and calculate node metrics."""
+def process_table(table_key, table_name):
+    """Process a single table."""
     try:
-        # Create or get the table first
-        table = create_or_get_table()
+        logger.info(
+            f"==== Starting processing for table: {table_key} ({table_name}) ===="
+        )
 
-        months = get_all_months()
+        # Create or get the table first
+        _, target_table = create_or_get_table(table_name)
+
+        months = get_all_months(table_name)
         total_months = len(months)
-        logger.info(f"Processing {total_months} months")
+        logger.info(f"Processing {total_months} months for table {table_name}")
 
         for i, month_start in enumerate(months, 1):
             logger.info(f"Processing month {i}/{total_months}: {month_start}")
 
             # Get data for the month
-            df_month = fetch_monthly_data(month_start)
+            df_month = fetch_monthly_data(month_start, table_name)
             logger.info(f"Fetched {len(df_month)} rows")
 
             # Calculate metrics
@@ -264,19 +270,43 @@ def process_all_months():
 
             if not node_metrics.empty:
                 # Upload to BigQuery
-                upload_to_bigquery(node_metrics, month_start)
+                upload_to_bigquery(node_metrics, month_start, target_table)
             else:
                 logger.warning(f"No metrics calculated for {month_start}")
 
-        logger.info("Processing completed successfully")
+        logger.info(
+            f"==== Completed processing for table: {table_key} ({table_name}) ===="
+        )
+        return True
 
     except Exception as e:
-        logger.error(f"Processing failed: {str(e)}\n{traceback.format_exc()}")
+        logger.error(
+            f"Processing failed for table {table_name}: {str(e)}\n{traceback.format_exc()}"
+        )
+        return False
+
+
+def process_all_tables():
+    """Process all tables sequentially."""
+    try:
+        logger.info(f"Starting sequential processing of {len(network_tables)} tables")
+
+        success_count = 0
+        for table_key, table_name in network_tables.items():
+            if process_table(table_key, table_name):
+                success_count += 1
+
+        logger.info(
+            f"Processing completed. Successfully processed {success_count}/{len(network_tables)} tables"
+        )
+
+    except Exception as e:
+        logger.error(f"Overall processing failed: {str(e)}\n{traceback.format_exc()}")
         raise
 
 
 if __name__ == "__main__":
     try:
-        process_all_months()
+        process_all_tables()
     except Exception as e:
         logger.error(f"Script failed: {str(e)}")
